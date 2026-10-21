@@ -1,0 +1,437 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>암석 연령 분석기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #f4f6fa;
+    color: #1f2937;
+    font-family: Arial, sans-serif;
+  }
+  main { max-width: 1050px; margin: auto; }
+  h1 { font-size: 26px; }
+  h2 { font-size: 19px; }
+  section {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 18px 0;
+  }
+  .hint {
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.6;
+  }
+  .table { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 650px;
+  }
+  th, td {
+    padding: 10px;
+    border-bottom: 1px solid #e5e7eb;
+    text-align: left;
+  }
+  th { font-size: 13px; background: #f8fafc; }
+  input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    font-size: 15px;
+  }
+  input:focus { outline: 2px solid #93c5fd; }
+  button {
+    width: 100%;
+    padding: 14px;
+    background: #2563eb;
+    color: white;
+    border: 0;
+    border-radius: 9px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  .big {
+    font-size: 29px;
+    font-weight: 700;
+    color: #1d4ed8;
+  }
+  .bad { color: #b91c1c; }
+  #summary {
+    background: #eff6ff;
+    border-radius: 10px;
+    padding: 18px;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>다중 동위원소 암석 연령 분석기</h1>
+  <p class="hint">
+    반감기는 자동 적용됩니다.
+    분석할 동위원소에만 비율을 입력하세요.
+    빈칸은 제외됩니다.
+  </p>
+
+  <section>
+    <h2>1. 동위원소 비율 입력</h2>
+    <p class="hint">
+      비율 하나: <b>0.168</b><br>
+      반복 측정값: <b>0.1675, 0.1680, 0.1683</b><br>
+      반복 측정값이 2개 이상일 때
+      표준불확도를 추정합니다(3개 이상 권장).
+    </p>
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th>모원소 → 자원소</th>
+            <th>반감기(Ma) · 고정</th>
+            <th>자원소*/모원소 비율 입력</th>
+          </tr>
+        </thead>
+        <tbody id="inputs"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <button onclick="calculate()">연령 계산하기</button>
+
+  <section>
+    <h2>2. 동위원소별 연령</h2>
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th>동위원소</th>
+            <th>측정 횟수</th>
+            <th>평균 비율</th>
+            <th>연령(Ma)</th>
+            <th>표준불확도(1σ)</th>
+          </tr>
+        </thead>
+        <tbody id="results"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. 종합 연령</h2>
+    <div id="summary">
+      비율을 입력하고 계산 버튼을 누르세요.
+    </div>
+    <p class="hint">
+      종합에는 불확도를 계산할 수 있는 동위원소만 사용합니다.
+      서로 다른 측정의 오차는 독립이라고 가정합니다(상관계수 0).
+      실제 상관관계와 공통 계통오차는 입력 정보 없이
+      자동 계산할 수 없습니다.
+    </p>
+  </section>
+
+  <p class="hint">
+    주의: 자원소*는 초기 성분 등을 제외한
+    <b>방사성 붕괴 기원 자원소</b>입니다.
+    실제 Rb–Sr, Sm–Nd, Lu–Hf, Re–Os 등의 분석에는
+    초기 자원소 보정이나 아이소크론 분석이 필요할 수 있습니다.
+    K–Ar는 분기 붕괴율을 별도 반영합니다.
+    여러 연대가 같은 지질학적 사건을 나타낸다고 확인된
+    경우에만 종합 연령을 해석하세요.
+  </p>
+</main>
+
+<script>
+// 반감기 Ma(백만 년)
+// K-40은 Ar-40 생성 분기율까지 반영
+
+const isotopes = [
+  {
+    name: 'U-238 → Pb-206',
+    half: 4468,
+    example: '0.1675, 0.1680, 0.1683'
+  },
+  {
+    name: 'U-235 → Pb-207',
+    half: 703.81,
+    example: '1.674, 1.680, 1.686'
+  },
+  {
+    name: 'Th-232 → Pb-208',
+    half: 14050,
+    example: '0.0504, 0.0506, 0.0508'
+  },
+  {
+    name: 'Rb-87 → Sr-87',
+    half: 48800,
+    example: ''
+  },
+  {
+    name: 'Sm-147 → Nd-143',
+    half: 106000,
+    example: ''
+  },
+  {
+    name: 'Lu-176 → Hf-176',
+    half: 37120,
+    example: ''
+  },
+  {
+    name: 'Re-187 → Os-187',
+    half: 41600,
+    example: ''
+  },
+  {
+    name: 'K-40 → Ar-40',
+    half: Math.log(2) / 0.0005543,
+    branch: 0.5808 / 5.543,
+    example: ''
+  }
+];
+
+const $ = id => document.getElementById(id);
+
+const fmt = x => x.toLocaleString('ko-KR', {
+  maximumFractionDigits: 3
+});
+
+// 입력창 자동 생성
+$('inputs').innerHTML = isotopes.map((s, i) => `
+  <tr>
+    <td>${s.name}</td>
+    <td>${fmt(s.half)}</td>
+    <td>
+      <input
+        type="text"
+        id="ratio${i}"
+        inputmode="decimal"
+        placeholder="예: 0.168 또는 0.167, 0.168, 0.169"
+        value="${s.example}"
+      >
+    </td>
+  </tr>
+`).join('');
+
+// 카이제곱 확률 계산에 필요한 함수
+function erfc(x) {
+  const t = 1 / (1 + 0.3275911 * x);
+
+  return Math.exp(-x * x) * (
+    0.254829592 * t
+    - 0.284496736 * t * t
+    + 1.421413741 * t ** 3
+    - 1.453152027 * t ** 4
+    + 1.061405429 * t ** 5
+  );
+}
+
+// 카이제곱 검정의 근사 p-value
+function chiSquareP(chi, df) {
+  if (chi === 0) return 1;
+
+  const z = chi / 2;
+  const goal = df / 2;
+  const even = df % 2 === 0;
+
+  let a = even ? 1 : 0.5;
+  let gammaA = even ? 1 : Math.sqrt(Math.PI);
+  let p = even ? Math.exp(-z) : erfc(Math.sqrt(z));
+
+  while (a < goal - 1e-10) {
+    p += Math.exp(-z) * Math.pow(z, a) / (a * gammaA);
+    gammaA *= a;
+    a++;
+  }
+
+  return Math.max(0, Math.min(1, p));
+}
+
+function calculate() {
+  const measured = [];
+  const results = [];
+
+  // 1. 동위원소별 계산
+  for (let i = 0; i < isotopes.length; i++) {
+    const s = isotopes[i];
+    const raw = $('ratio' + i).value.trim();
+
+    if (!raw) continue;
+
+    const parts = raw.split(/[,;\s]+/).filter(Boolean);
+    const vals = parts.map(Number);
+
+    if (vals.some(x => !Number.isFinite(x) || x < 0)) {
+      alert(s.name + '의 비율 입력을 확인하세요.');
+      return;
+    }
+
+    const n = vals.length;
+    const meanRatio =
+      vals.reduce((a, b) => a + b, 0) / n;
+
+    // 붕괴상수
+    const lambda = Math.log(2) / s.half;
+    const factor = 1 / (s.branch || 1);
+
+    // 개별 암석 연령
+    const age =
+      Math.log1p(factor * meanRatio) / lambda;
+
+    // 2. 반복 측정의 표준불확도 계산
+    let uAge = null;
+
+    if (n >= 2) {
+      const sampleVar = vals.reduce(
+        (sum, v) => sum + (v - meanRatio) ** 2, 0
+      ) / (n - 1);
+
+      // 비율 평균의 표준불확도
+      const uRatio = Math.sqrt(sampleVar / n);
+
+      // 연령으로 오차 전파
+      const propagated =
+        uRatio * factor /
+        (lambda * (1 + factor * meanRatio));
+
+      if (propagated > 0) {
+        uAge = propagated;
+      }
+    }
+
+    results.push({
+      name: s.name,
+      n,
+      ratio: meanRatio,
+      age,
+      uAge
+    });
+
+    if (uAge !== null) {
+      measured.push({
+        name: s.name,
+        age,
+        uAge
+      });
+    }
+  }
+
+  // 3. 개별 결과 출력
+  $('results').innerHTML = results.length
+    ? results.map(r => `
+      <tr>
+        <td>${r.name}</td>
+        <td>${r.n}</td>
+        <td>${r.ratio.toPrecision(5)}</td>
+        <td>${fmt(r.age)}</td>
+        <td>
+          ${r.uAge === null
+            ? '계산 불가'
+            : '± ' + fmt(r.uAge)}
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5">입력값이 없습니다.</td></tr>';
+
+  if (measured.length < 2) {
+    $('summary').innerHTML = `
+      종합 연령 계산 불가<br>
+      불확도를 계산할 수 있는 동위원소가
+      2종 이상 필요합니다.
+    `;
+    return;
+  }
+
+  // 4. 역분산 가중평균
+  // 서로 다른 측정 오차는 독립이라고 가정
+  const weights = measured.map(
+    m => 1 / (m.uAge * m.uAge)
+  );
+
+  const sumW = weights.reduce((a, b) => a + b, 0);
+
+  const average = measured.reduce(
+    (sum, m, i) => sum + m.age * weights[i], 0
+  ) / sumW;
+
+  const uAverage = Math.sqrt(1 / sumW);
+
+  // 5. MSWD 및 일치성 검정
+  const chi = measured.reduce(
+    (sum, m, i) =>
+      sum + weights[i] * (m.age - average) ** 2,
+    0
+  );
+
+  const df = measured.length - 1;
+  const mswd = chi / df;
+  const p = chiSquareP(chi, df);
+
+  const valid = p >= 0.05;
+
+  // 6. 최종 결과 출력
+  $('summary').innerHTML = `
+    <div>
+      종합에 사용된 동위원소:
+      <b>${measured.length}종</b>
+    </div>
+
+    <div>
+      MSWD: <b>${fmt(mswd)}</b>
+    </div>
+
+    <div>
+      근사 p-value: <b>${p.toPrecision(4)}</b>
+    </div>
+
+    ${valid ? `
+      <div class="big">
+        ${fmt(average)} Ma
+      </div>
+
+      <div>
+        표준불확도(1σ):
+        ± ${fmt(uAverage)} Ma
+      </div>
+
+      <div>
+        정규분포 근사 95% 구간:
+        ${fmt(average - 1.96 * uAverage)}
+        ~
+        ${fmt(average + 1.96 * uAverage)} Ma
+      </div>
+
+      <div>
+        판정: 통계적으로 일치
+      </div>
+    ` : `
+      <p class="bad">
+        <b>연령 불일치: 최종 연령 통합 보류</b>
+      </p>
+
+      측정 불확도, 초기 자원소 보정,
+      시료의 변성 여부 등을 확인하세요.
+    `}
+
+    <p class="hint">
+      이 불확도는 반복 측정의 산포만 반영합니다.
+      공통 계통오차와 붕괴상수의 불확도는
+      반영하지 않았습니다.
+      반복 횟수가 적으면 통계 검정과
+      95% 구간은 부정확할 수 있습니다.
+    </p>
+  `;
+}
+
+// 시작할 때 예제 데이터 계산
+calculate();
+</script>
+</body>
+</html>
+
